@@ -18,7 +18,7 @@ from sklearn.cross_validation import train_test_split
 from sklearn.metrics import mean_squared_error
  
 
-batch_size = 10
+batch_size = 943
 
 user_data = pd.read_table('u.data', sep='\t', names=['user id', 'item id', 'rating', 'timestamp'])
 user_user = pd.read_table('u.user', sep='|',names=['user id', 'age', 'gender', 'occupation', 'zip code'])
@@ -44,7 +44,7 @@ test_data_matrix = np.zeros((n_users, n_items))
 for line in test_data.itertuples():
     test_data_matrix[line[1]-1, line[2]-1] = line[3]
 
-print(np.count_nonzero(train_data_matrix==0))
+# print(np.count_nonzero(train_data_matrix==0))
     # user - user similarity Matrix (943x943) :
 user_similarity = pairwise_distances(train_data_matrix, metric='cosine')
 
@@ -93,35 +93,17 @@ def trust_predict(ratings, trust_weights, type='user'):
     return pred
 
 # user - user CF:
-user_prediction = predict(train_data_matrix[:batch_size,:], cosine_user_similarity[:batch_size,:batch_size], type='user')
+user_prediction = predict(train_data_matrix, cosine_user_similarity, type='user')
 # item - item CF:
-item_prediction = predict(train_data_matrix[:,:batch_size], cosine_item_similarity[:batch_size,:batch_size], type='item')
+item_prediction = predict(train_data_matrix, cosine_item_similarity, type='item')
 
 def rmse(prediction, ground_truth):
-    
-    np.where(np.isnan(ground_truth), ground_truth, 0)
-    np.where(np.isinf(ground_truth), ground_truth, 0)
-
-    np.where(np.isnan(prediction), prediction, 0)
-    np.where(np.isinf(prediction), prediction, 0)
-
     prediction = prediction[ground_truth.nonzero()].flatten()
-    # print(np.isnan(prediction))
-    np.where(np.isnan(prediction), prediction, 0)
-    np.where(np.isinf(prediction), prediction, 0)
-
     ground_truth = ground_truth[ground_truth.nonzero()].flatten()
-    np.where(np.isnan(ground_truth), ground_truth, 0)
-    np.where(np.isinf(ground_truth), ground_truth, 0)
-
-    msr = mean_squared_error(prediction, ground_truth)
-    # np.where(np.isnan(msr), msr, 0)
-    # np.where(np.isinf(msr), msr, 0)
-    # np.nan_to_num()
     return sqrt(mean_squared_error(prediction, ground_truth))
 
-print('User-based CF RMSE: ' + str(rmse(user_prediction, test_data_matrix[:batch_size,:])))
-print('Item-based CF RMSE: ' + str(rmse(item_prediction, test_data_matrix[:,:batch_size])))
+print('User-based CF RMSE: ' + str(rmse(user_prediction, test_data_matrix)))
+print('Item-based CF RMSE: ' + str(rmse(item_prediction, test_data_matrix)))
 
 def gen_trust_matrix_leave_one_out(ratings,similarity,batch_size,prediction, ptype):
     trust_matrix = np.zeros((batch_size, batch_size))
@@ -139,12 +121,16 @@ def gen_trust_matrix_leave_one_out(ratings,similarity,batch_size,prediction, pty
 
         if ptype == 'item':
             ratings_new.T
+
         xhat_predict = predict(ratings_new, similarity_new,ptype)
         
+        xhat_predict[np.isnan(xhat_predict)] = 0
+        # print(np.any(np.isnan(xhat_predict)))
+
         predic_diff = abs(prediction - xhat_predict)
 
-        np.where(np.isnan(predic_diff), predic_diff, 0)
-        np.where(np.isinf(predic_diff), predic_diff, 0)
+        # np.where(np.isnan(predic_diff), predic_diff, 0)
+        
         
         # if ((x/batch_size)*100) > 80:
         #     print('append zeros to consumers')
@@ -152,65 +138,62 @@ def gen_trust_matrix_leave_one_out(ratings,similarity,batch_size,prediction, pty
 
         trust_row = ((predic_diff <10).sum(dim))/predic_diff.shape[dim]
         
-        np.where(np.isinf(trust_row), trust_row, 0)
-        np.where(np.isnan(trust_row), trust_row, 0)
+        # np.where(np.isinf(trust_row), trust_row, 0)
+        # np.where(np.isnan(trust_row), trust_row, 0)
         
         trust_matrix[x] = trust_row
     
     return trust_matrix
 
-def get_harmonic_mean(trust_matrix, cos_similarity,batch_size):
-    return (2*(trust_matrix*cos_similarity[:batch_size,:batch_size]))/(trust_matrix + cos_similarity[:batch_size,:batch_size])
+def get_harmonic_mean(trust_matrix, cos_similarity):
+    return (2*(trust_matrix*cos_similarity))/(trust_matrix + cos_similarity)
 
 def get_trust_prediction(train_data_matrix,cos_similarity,batch_size, prediction, ptype):
-    cos_similarity = cos_similarity[:batch_size,:batch_size]
-    
-    if ptype == 'item':
-        train_data_matrix = train_data_matrix[:,:batch_size]
-        prediction = prediction[:,:batch_size]
-
-    else:
-        train_data_matrix = train_data_matrix[:batch_size,:]
-        prediction = prediction[:batch_size,:]
-
     trust_matrix = gen_trust_matrix_leave_one_out(train_data_matrix, cos_similarity,batch_size, prediction, ptype)
-    trust_weights = get_harmonic_mean(trust_matrix,cos_similarity,batch_size)
+    trust_weights = get_harmonic_mean(trust_matrix,cos_similarity)
     
     return predict(train_data_matrix,trust_weights,ptype)
 
 
-tw_user_predictions = get_trust_prediction(train_data_matrix, cosine_user_similarity,batch_size,user_prediction,ptype='user')
-tw_item_predictions = get_trust_prediction(train_data_matrix, cosine_item_similarity,batch_size,item_prediction, ptype='item')
+tw_user_predictions = get_trust_prediction(train_data_matrix[:batch_size,:], cosine_user_similarity[:batch_size,:batch_size],batch_size,user_prediction[:batch_size,:],ptype='user')
+tw_item_predictions = get_trust_prediction(train_data_matrix[:,:batch_size], cosine_item_similarity[:batch_size,:batch_size],batch_size,item_prediction[:,:batch_size], ptype='item')
 
 
 print('Tw-based user CF RMSE: ' + str(rmse(tw_user_predictions, test_data_matrix[:batch_size,:])))
 print('Tw-Items-based user CF RMSE: ' + str(rmse(tw_item_predictions, test_data_matrix[:,:batch_size])))
 
-# test_batch_sizes = [50,100,200,300,400,500,600,700,800,900,n_users]
-ptype = 'item'
 
-if ptype == 'item':
-    batch_count = int(n_items/batch_size)
-    ini = 0
-    for x in range(batch_count):
-        t = train_data_matrix[:,ini:ini+batch_size]
-        # print(t)
-        sim = cosine_item_similarity[ini:ini+batch_size,ini:ini+batch_size]
-        print('similarity between '+ str(ini) +', '+ str(ini+batch_size))
-        print(sim)
+# ptype = 'item'
 
-        ini += batch_size
-else:
-    batch_count = int(n_users/batch_size)
-    ini = 0
-    for x in range(batch_count):
+# if ptype == 'item':
+#     batch_count = int(n_items/batch_size)
+#     ini = 0
+#     for x in range(batch_count):
+#         t = train_data_matrix[:,ini:ini+batch_size]
+#         # print(t)
+#         sim = cosine_item_similarity[ini:ini+batch_size,ini:ini+batch_size]
+#         p = item_prediction[:,ini:ini+batch_size]
+#         test = test_data_matrix[:,ini:ini+batch_size]
+
+#         tp = get_trust_prediction(t,sim,batch_size,p,ptype)
+#         # print(np.any(np.isnan(tp)))
+#         # print(str(rmse(tp, test)))
+#         # print(tp)
+#         # test_data_matrix[:batch_size,:]
+
+#         # print('similarity between '+ str(ini) +', '+ str(ini+batch_size))
+#         # print(sim)
+#         ini += batch_size
+#         # print(ini)
+# else:
+#     batch_count = int(n_users/batch_size)
+#     ini = 0
+#     for x in range(batch_count):
         
-        t = train_data_matrix[:ini,ini+batch_size]
+#         t = train_data_matrix[:ini,ini+batch_size]
 
-        sim = cosine_user_similarity[ini:ini+batch_size,ini:ini+batch_size]
-        print(t)
-        ini += batch_size
+#         sim = cosine_user_similarity[ini:ini+batch_size,ini:ini+batch_size]
+#         print(t)
+#         ini += batch_size
 
-#     print(test_batch_sizes[x])
-#     pass
 
