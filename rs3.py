@@ -54,7 +54,7 @@ from matplotlib.ticker import LinearLocator, FormatStrFormatter
 # from matplotlib import pyplot as plt
 # from tsne import bh_sne
 
-batch_size = 50
+batch_size = 20
 
 user_data = pd.read_table('u.data', sep='\t', names=['user id', 'item id', 'rating', 'timestamp'])
 # print(user_data.shape)
@@ -166,14 +166,15 @@ def rmse(prediction, ground_truth):
 print('User-based CF RMSE: ' + str(rmse(user_prediction, test_data_matrix)))
 print('Item-based CF RMSE: ' + str(rmse(item_prediction, test_data_matrix)))
 
-import time
+# import time
 # start_time = time.time()
 
 
 def gen_trust_matrix_leave_one_out(ratings,similarity,batch_size,prediction, ptype):
-    trust_matrix = []
+    trust_matrix = np.zeros((batch_size, batch_size))
     dim = 1
-    
+    profiles_sep_option = 'no'
+    percentage = 80 #80 20    
     for x in range(batch_size):
         ratings_new = ratings.copy()
         similarity_new = similarity.copy()
@@ -196,12 +197,28 @@ def gen_trust_matrix_leave_one_out(ratings,similarity,batch_size,prediction, pty
         # else:
         #     
         predic_diff = abs(prediction - xhat_predict)
+
+        np.where(np.isnan(predic_diff), predic_diff, 0)
+        # predic_diff = predic_diff[~np.isnan(predic_diff)]
         
-        trust_matrix.append(((predic_diff <0.001).sum(dim))/predic_diff.shape[dim])
+        if ((x/batch_size)*100) > 80:
+            print('append zeros to consumers')
+        # trust_matrix.append(((predic_diff <0.001).sum(dim))/predic_diff.shape[dim])
+        # np.allclose(x * x, y)
+        # print(predic_diff[:,:5] <0.2)
+
+
+        trust_row = ((predic_diff <0.2).sum(dim))/predic_diff.shape[dim]
+        # trust_row = trust_row[~np.isnan(trust_row)]
+        # trust_row = trust_row[~np.isfinite(trust_row)]
+        np.where(np.isinf(trust_row), trust_row, 0)
+        # if np.any(np.isfinite(trust_row <0.001)):
+        #     print('inf')
+        # np.any(np.isnan(trust_row))
+        trust_matrix[x] = trust_row
         # print((predic_diff <0.001).sum(dim))
 
     return trust_matrix
-
 
 def gen_trust_matrix(ratings,similarity,batch_size, prediction_matrix):
 
@@ -265,12 +282,18 @@ predict(train2,cos_i2,type='item')
 tw = gen_trust_matrix_leave_one_out(train_data_matrix[:batch_size,:], cosine_user_similarity[:batch_size,:batch_size],batch_size, user_prediction[:batch_size,:],ptype='user')
 tw_item = gen_trust_matrix_leave_one_out(train_data_matrix[:,:batch_size], cosine_item_similarity[:batch_size,:batch_size],batch_size, item_prediction[:,:batch_size],ptype='item')
 
+# tw_item = tw_item.as_matrix().astype(np.float)
+# X = X.as_matrix().astype(np.float)
 # print(tw.shape)
 # print(trust_matrix_mini_batch_1)
 # np.savetxt('tw.csv', tw,delimiter=",")
+def get_harmonic_mean(trust_matrix, cos_similarity,batch_size):
+    return (2*(trust_matrix*cos_similarity[:batch_size,:batch_size]))/(trust_matrix + cos_similarity[:batch_size,:batch_size])
+
 tw_user_harmonic_mean = (2*(tw*cosine_user_similarity[:batch_size,:batch_size]))/(tw + cosine_user_similarity[:batch_size,:batch_size])
 # print(tw_item)
 # np.array(tw_item).reshape(train2.shape)
+
 
 tw_item_harmonic_mean = (2*(tw_item*cosine_item_similarity[:batch_size,:batch_size]))/(tw_item + cosine_item_similarity[:batch_size,:batch_size])
 
@@ -281,7 +304,11 @@ tw_item_predictions = predict(train_data_matrix[:,:batch_size], tw_item_harmonic
 print('Tw-based user CF RMSE: ' + str(rmse(tw_user_predictions, test_data_matrix[:batch_size,:])))
 print('Tw-Items-based user CF RMSE: ' + str(rmse(tw_item_predictions, test_data_matrix[:,:batch_size])))
 
-# gx = np.random.randn(500)
+# test_batch_sizes = [50,100,200,300,400,500,600,700,800,900,n_users]
+
+
+
+    # gx = np.random.randn(500)
 # datax = [go.Histogram(x=gx)]
 
 # py.plot(datax, filename='basic histogram')
